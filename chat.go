@@ -1,5 +1,47 @@
 package helix
 
+import "errors"
+
+type GetChatChattersParams struct {
+	BroadcasterID string `query:"broadcaster_id"`
+	ModeratorID   string `query:"moderator_id"`
+	After         string `query:"after"`
+	First         string `query:"first"`
+}
+
+type ChatChatter struct {
+	UserLogin string `json:"user_login"`
+	UserID    string `json:"user_id"`
+	Username  string `json:"user_name"`
+}
+
+type ManyChatChatters struct {
+	Chatters   []ChatChatter `json:"data"`
+	Pagination Pagination    `json:"pagination"`
+}
+
+type GetChatChattersResponse struct {
+	ResponseCommon
+	Data ManyChatChatters
+}
+
+// Required scope: moderator:read:chatters
+func (c *Client) GetChannelChatChatters(params *GetChatChattersParams) (*GetChatChattersResponse, error) {
+	if params.BroadcasterID == "" || params.ModeratorID == "" {
+		return nil, errors.New("error: broadcaster and moderator identifiers must be provided")
+	}
+	resp, err := c.get("/chat/chatters", &ManyChatChatters{}, params)
+	if err != nil {
+		return nil, err
+	}
+
+	chatters := &GetChatChattersResponse{}
+	resp.HydrateResponseCommon(&chatters.ResponseCommon)
+	chatters.Data.Chatters = resp.Data.(*ManyChatChatters).Chatters
+
+	return chatters, nil
+}
+
 type GetChatBadgeParams struct {
 	BroadcasterID string `query:"broadcaster_id"`
 }
@@ -57,6 +99,18 @@ type GetChannelEmotesParams struct {
 
 type GetEmoteSetsParams struct {
 	EmoteSetIDs []string `query:"emote_set_id"` // Minimum: 1. Maximum: 25.
+}
+
+type SendChatAnnouncementParams struct {
+	BroadcasterID string `query:"broadcaster_id"` // required
+	ModeratorID   string `query:"moderator_id"`   // required
+	Message       string `json:"message"`         // upto 500 chars, thereafter str is truncated
+	// blue || green || orange || purple are valid, default 'primary' or empty str result in channel accent color.
+	Color string `json:"color"`
+}
+
+type SendChatAnnouncementResponse struct {
+	ResponseCommon
 }
 
 type GetChannelEmotesResponse struct {
@@ -135,4 +189,18 @@ func (c *Client) GetEmoteSets(params *GetEmoteSetsParams) (*GetEmoteSetsResponse
 	emotes.Data.Emotes = resp.Data.(*ManyEmotesWithOwner).Emotes
 
 	return emotes, nil
+}
+
+// SendChatAnnouncement sends an announcement to the broadcaster’s chat room.
+// Required scope: moderator:manage:announcements
+func (c *Client) SendChatAnnouncement(params *SendChatAnnouncementParams) (*SendChatAnnouncementResponse, error) {
+	resp, err := c.postAsJSON("/chat/announcements", nil, params)
+	if err != nil {
+		return nil, err
+	}
+
+	chatResp := &SendChatAnnouncementResponse{}
+	resp.HydrateResponseCommon(&chatResp.ResponseCommon)
+
+	return chatResp, nil
 }

@@ -5,6 +5,76 @@ import (
 	"testing"
 )
 
+func TestGetChannelChatChatterss(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		statusCode            int
+		options               *Options
+		GetChatChattersParams *GetChatChattersParams
+		respBody              string
+		validationErr         string
+	}{
+		{
+			http.StatusBadRequest,
+			&Options{ClientID: "my-client-id"},
+			&GetChatChattersParams{BroadcasterID: "", ModeratorID: "1234"},
+			``,
+			"error: broadcaster and moderator identifiers must be provided",
+		},
+		{
+			http.StatusOK,
+			&Options{ClientID: "my-client-id"},
+			&GetChatChattersParams{BroadcasterID: "121445595", ModeratorID: "1234"},
+			`{"data": [{"user_login": "smittysmithers", "user_name": "example", "user_id": "100249558"}]}`,
+			"",
+		},
+		{
+			http.StatusBadRequest,
+			&Options{ClientID: "my-client-id"},
+			&GetChatChattersParams{BroadcasterID: "1231", ModeratorID: "1234"},
+			`{"error":"Bad Request","status":400,"message":"Missing required parameter \"broadcaster_id\""}`,
+			"",
+		},
+	}
+
+	for _, testCase := range testCases {
+		c := newMockClient(testCase.options, newMockHandler(testCase.statusCode, testCase.respBody, nil))
+
+		resp, err := c.GetChannelChatChatters(testCase.GetChatChattersParams)
+		if err != nil {
+			if err.Error() == testCase.validationErr {
+				continue
+			}
+			t.Error(err)
+		}
+
+		if resp.StatusCode != testCase.statusCode {
+			t.Errorf("expected status code to be %d, got %d", testCase.statusCode, resp.StatusCode)
+		}
+
+		if resp.StatusCode == http.StatusBadRequest {
+			if resp.Error != "Bad Request" {
+				t.Errorf("expected error to be %s, got %s", "Bad Request", resp.Error)
+			}
+
+			if resp.ErrorStatus != http.StatusBadRequest {
+				t.Errorf("expected error status to be %d, got %d", http.StatusBadRequest, resp.ErrorStatus)
+			}
+
+			continue
+		}
+
+		if len(resp.Data.Chatters) != 1 {
+			t.Errorf("expected %d chatters got %d", 1, len(resp.Data.Chatters))
+		}
+
+		if resp.Data.Chatters[0].UserID != "100249558" {
+			t.Errorf("expected %s chatters got %s", "100249558", resp.Data.Chatters[0].UserID)
+		}
+	}
+}
+
 func TestGetChannelChatBadges(t *testing.T) {
 	t.Parallel()
 
@@ -389,6 +459,80 @@ func TestGetEmoteSets(t *testing.T) {
 	}
 
 	_, err := c.GetEmoteSets(&GetEmoteSetsParams{})
+	if err == nil {
+		t.Error("expected error but got nil")
+	}
+
+	if err.Error() != "Failed to execute API request: Oops, that's bad :(" {
+		t.Error("expected error does match return error")
+	}
+}
+
+func TestSendChatAnnouncement(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		statusCode                 int
+		options                    *Options
+		SendChatAnnouncementParams *SendChatAnnouncementParams
+		respBody                   string
+	}{
+		{
+			http.StatusBadRequest,
+			&Options{ClientID: "my-client-id", UserAccessToken: "moderator-access-token"},
+			&SendChatAnnouncementParams{BroadcasterID: "100249558", ModeratorID: "100249558", Message: "hello world", Color: "blue"},
+			`{"error":"Bad Request","status":400,"message":"The parameter \"Color\" was malformed: the value must be a valid color"}`,
+		},
+		{
+			http.StatusNoContent,
+			&Options{ClientID: "my-client-id", UserAccessToken: "moderator-access-token"},
+			&SendChatAnnouncementParams{BroadcasterID: "100249558", ModeratorID: "100249558", Message: "hello twitch chat", Color: "blue"},
+			``,
+		},
+	}
+
+	for _, testCase := range testCases {
+		c := newMockClient(testCase.options, newMockHandler(testCase.statusCode, testCase.respBody, nil))
+
+		resp, err := c.SendChatAnnouncement(testCase.SendChatAnnouncementParams)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if resp.StatusCode != testCase.statusCode {
+			t.Errorf("expected status code to be %d, got %d", testCase.statusCode, resp.StatusCode)
+		}
+
+		if resp.StatusCode == http.StatusBadRequest {
+			if resp.Error != "Bad Request" {
+				t.Errorf("expected error to be %s, got %s", "Bad Request", resp.Error)
+			}
+
+			if resp.ErrorStatus != http.StatusBadRequest {
+				t.Errorf("expected error status to be %d, got %d", http.StatusBadRequest, resp.ErrorStatus)
+			}
+
+			expectedErrMsg := "The parameter \"Color\" was malformed: the value must be a valid color"
+			if resp.ErrorMessage != expectedErrMsg {
+				t.Errorf("expected error message to be %s, got %s", expectedErrMsg, resp.ErrorMessage)
+			}
+
+			continue
+		}
+	}
+
+	// Test with HTTP Failure
+	options := &Options{
+		ClientID: "my-client-id",
+		HTTPClient: &badMockHTTPClient{
+			newMockHandler(0, "", nil),
+		},
+	}
+	c := &Client{
+		opts: options,
+	}
+
+	_, err := c.SendChatAnnouncement(&SendChatAnnouncementParams{})
 	if err == nil {
 		t.Error("expected error but got nil")
 	}
